@@ -1,4 +1,4 @@
-﻿#include <windows.h>
+#include <windows.h>
 #include <urlmon.h>
 #include <iostream>
 #include <filesystem>
@@ -6,6 +6,65 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+
+bool __is_dotnet_runtime_installed__() {
+    std::filesystem::path runtimePath = LR"(C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App\9.0.9\)";
+    return std::filesystem::exists(runtimePath);
+}
+
+bool __install_dotnet_runtime__() {
+    std::wcout << L"[+] Downloading .NET Desktop Runtime 9.0.9...\n";
+    const wchar_t* url = L"https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.9/windowsdesktop-runtime-9.0.9-win-x64.exe";
+    std::filesystem::path tempPath = std::filesystem::temp_directory_path() / L"windowsdesktop-runtime-9.0.9-win-x64.exe";
+
+    HRESULT hr = URLDownloadToFileW(nullptr, url, tempPath.c_str(), 0, nullptr);
+    if (FAILED(hr)) {
+        std::wcerr << L"[!] Failed to download .NET Runtime. HRESULT=" << hr << L"\n";
+        return false;
+    }
+
+    std::wcout << L"[#] Installing .NET Runtime...\n";
+
+    SHELLEXECUTEINFOW shEx{ sizeof(SHELLEXECUTEINFOW) };
+    shEx.fMask = SEE_MASK_NOCLOSEPROCESS;
+    shEx.lpFile = tempPath.c_str();
+    shEx.lpParameters = L"/install /passive /norestart";
+    shEx.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&shEx)) {
+        std::wcerr << L"[!] Failed to start installer. Error: " << GetLastError() << L"\n";
+        return false;
+    }
+
+    if (!shEx.hProcess) {
+        std::wcerr << L"[!] Installer process handle is NULL.\n";
+        return false;
+    }
+
+    std::wcout << L"[*] Installing, please wait...\n";
+    WaitForSingleObject(shEx.hProcess, INFINITE);
+
+    DWORD exitCode = 0;
+    if (!GetExitCodeProcess(shEx.hProcess, &exitCode)) {
+        std::wcerr << L"[!] Failed to get installer exit code. Error: " << GetLastError() << L"\n";
+        CloseHandle(shEx.hProcess);
+        return false;
+    }
+
+    CloseHandle(shEx.hProcess);
+
+    if (exitCode == 0) {
+        std::wcout << L"[OK] .NET Runtime installed successfully.\n";
+        try { std::filesystem::remove(tempPath); }
+        catch (...) {}
+        return true;
+    }
+    else {
+        std::wcerr << L"[!] Installation failed. Exit code: " << exitCode << L"\n";
+        return false;
+    }
+}
+
 
 ULONGLONG SystemTimeToULL(const SYSTEMTIME& st) {
     FILETIME ft;
@@ -166,6 +225,20 @@ void __usn__jrnl__main__() {
 }
 
 int wmain() {
+    if (!__is_dotnet_runtime_installed__()) {
+        if (!__install_dotnet_runtime__()) {
+            std::wcerr << L"[!] Cannot continue without .NET Runtime.\n";
+            system("pause");
+            return 1;
+        }
+        Sleep(1000);
+        system("cls");
+    } else {
+        std::wcout << L"[OK] .NET Desktop Runtime 9.0.9 already installed.\n";
+        Sleep(1000);
+        system("cls");
+    }
+
     __usn__jrnl__main__();
     system("pause");
     return 0;
